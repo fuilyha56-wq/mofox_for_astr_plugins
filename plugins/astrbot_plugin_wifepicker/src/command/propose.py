@@ -1,0 +1,291 @@
+import asyncio
+import time
+from datetime import datetime
+
+import astrbot.api.message_components as Comp
+from astrbot.api.event import AstrMessageEvent, MessageChain
+from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
+    AiocqhttpMessageEvent,
+)
+
+from ..core import (
+    get_force_marry_cooldown_status,
+    get_propose_cooldown_status,
+    set_propose_cooldown,
+)
+from ..utils import extract_target_id_from_message, resolve_member_name, save_json
+
+# 群内待处理的求婚请求
+propose_requests = {}
+
+
+def _cleanup_expired_requests(group_id: str) -> None:
+    group_requests = propose_requests.get(group_id)
+    if not isinstance(group_requests, dict):
+        return
+
+    expired_target_ids = [
+        target_id
+        for target_id, req in group_requests.items()
+        if not isinstance(req, dict)
+        or not isinstance(req.get("expire"), (int, float))
+    ]
+    for target_id in expired_target_ids:
+        group_requests.pop(target_id, None)
+
+    if not group_requests:
+        propose_requests.pop(group_id, None)
+
+
+def _is_request_expired(req: dict, now: float | None = None) -> bool:
+    expire_at = req.get("expire")
+    if not isinstance(expire_at, (int, float)):
+        return True
+    current_ts = time.time() if now is None else now
+    return expire_at <= current_ts
+
+
+def _get_pending_request_by_proposer(
+    group_id: str, proposer_id: str
+) -> tuple[str | None, dict | None]:
+    _cleanup_expired_requests(group_id)
+    group_requests = propose_requests.get(group_id, {})
+    for target_id, req in group_requests.items():
+        if (
+            isinstance(req, dict)
+            and req.get("proposer_id") == proposer_id
+            and not _is_request_expired(req)
+        ):
+            return target_id, req
+    return None, None
+
+
+def _delete_request(group_id: str, target_id: str) -> None:
+    group_requests = propose_requests.get(group_id)
+    if not isinstance(group_requests, dict):
+        return
+
+    group_requests.pop(target_id, None)
+    if not group_requests:
+        propose_requests.pop(group_id, None)
+
+
+def _delete_requests_by_proposer(group_id: str, proposer_id: str) -> None:
+    group_requests = propose_requests.get(group_id)
+    if not isinstance(group_requests, dict):
+        return
+
+    target_ids = [
+        target_id
+        for target_id, req in group_requests.items()
+        if isinstance(req, dict) and req.get("proposer_id") == proposer_id
+    ]
+    for target_id in target_ids:
+        group_requests.pop(target_id, None)
+
+    if not group_requests:
+        propose_requests.pop(group_id, None)
+
+
+def _format_remaining_seconds(seconds: float) -> str:
+    total_seconds = max(0, int(seconds))
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    secs = total_seconds % 60
+    if hours > 0:
+        return f"{hours}小时{minutes}分"
+    if minutes > 0:
+        return f"{minutes}分{secs}秒"
+    return f"{secs}秒"
+
+
+async def cmd_propose(plugin_instance, event: AstrMessageEvent):
+    """发起求婚指令的逻辑"""
+    if event.is_private_chat():
+        yield event.plain_result("求婚只能在群聊中进行哦~")
+        return
+
+    user_id = str(event.get_sender_id())
+    group_id = str(event.get_group_id())
+    target_id = extract_target_id_from_message(event)
+
+    if not target_id or target_id == "all":
+        yield event.plain_result("请 @ 一个你想求婚的人。")
+        return
+    if target_id == user_id:
+        yield event.plain_result("不能向自己求婚哦！")
+        return
+
+    user_force_cd = get_force_marry_cooldown_status(plugin_instance, group_id, user_id)
+    if user_force_cd:
+        yield event.plain_result("你还在强娶冷却期内，暂时不能求婚。")
+        return
+
+    target_force_cd = get_force_marry_cooldown_status(
+        plugin_instance, group_id, target_id
+    )
+    if target_force_cd:
+        yield event.plain_result("对方还在强娶冷却期内，暂时不能接受求婚。")
+        return
+
+    user_propose_cd = get_propose_cooldown_status(plugin_instance, group_id, user_id)
+    if user_propose_cd:
+        remaining_text = _format_remaining_seconds(user_propose_cd["remaining"])
+        yield event.plain_result(f"你还在求婚冷却期内，请等待 {remaining_text} 后再试。")
+        return
+
+    target_propose_cd = get_propose_cooldown_status(
+        plugin_instance, group_id, target_id
+    )
+    if target_propose_cd:
+        remaining_text = _format_remaining_seconds(target_propose_cd["remaining"])
+        yield event.plain_result(
+            f"对方还在求婚冷却期内，请等待 {remaining_text} 后再试。"
+        )
+        return
+
+    now = time.time()
+    target_name = f"用户({target_id})"
+    try:
+        if event.get_platform_name() == "aiocqhttp" and isinstance(
+            event, AiocqhttpMessageEvent
+        ):
+            members = await event.bot.api.call_action(
+                "get_group_member_list", group_id=int(group_id)
+            )
+            if isinstance(members, dict) and "data" in members:
+                members = members["data"]
+            target_name = resolve_member_name(
+                members, user_id=target_id, fallback=target_name
+            )
+    except Exception:
+        pass
+
+    pending_target_id, _ = _get_pending_request_by_proposer(group_id, user_id)
+    if pending_target_id is not None:
+        yield event.plain_result("你已经有一个待处理的求婚了，请等待对方回复或 30 秒后再试。")
+        return
+
+    if group_id not in propose_requests:
+        propose_requests[group_id] = {}
+
+    propose_requests[group_id][target_id] = {
+        "proposer_id": user_id,
+        "proposer_name": event.get_sender_name() or f"用户({user_id})",
+        "target_name": target_name,
+        "expire": now + 30,
+        "umo": event.unified_msg_origin,
+    }
+
+    yield event.plain_result(
+        f"🌹 @{event.get_sender_name()} 向【{target_name}】发起了求婚！\n"
+        '请在 30 秒内回复“同意”来接受。'
+    )
+
+    await asyncio.sleep(30)
+    if group_id in propose_requests and target_id in propose_requests[group_id]:
+        req = propose_requests[group_id][target_id]
+        if req["proposer_id"] == user_id:
+            chain_obj = MessageChain()
+            chain_obj.chain = [
+                Comp.At(qq=user_id),
+                Comp.Plain(text=" ...很遗憾，求婚超时了，对方似乎没有答应..."),
+            ]
+
+            try:
+                await plugin_instance.context.send_message(req["umo"], chain_obj)
+            except Exception as e:
+                from astrbot.api import logger
+
+                logger.error(f"[propose] 发送超时提醒失败: {e}")
+
+            _delete_request(group_id, target_id)
+
+
+async def handle_propose_response(plugin_instance, event: AstrMessageEvent):
+    """处理同意求婚的回复"""
+    group_id = str(event.get_group_id())
+    user_id = str(event.get_sender_id())
+    msg = event.message_str.strip()
+
+    _cleanup_expired_requests(group_id)
+    if group_id in propose_requests and user_id in propose_requests[group_id]:
+        req = propose_requests[group_id][user_id]
+
+        if _is_request_expired(req):
+            _delete_request(group_id, user_id)
+            return
+
+        if msg in ["同意求婚", "我同意", "同意"]:
+            proposer_id = req["proposer_id"]
+            proposer_name = req["proposer_name"]
+            target_name = req["target_name"]
+
+            proposer_force_cd = get_force_marry_cooldown_status(
+                plugin_instance, group_id, proposer_id
+            )
+            target_force_cd = get_force_marry_cooldown_status(
+                plugin_instance, group_id, user_id
+            )
+            if proposer_force_cd or target_force_cd:
+                _delete_requests_by_proposer(group_id, proposer_id)
+                yield event.plain_result("求婚已失效：你们中有人进入了强娶冷却期。")
+                return
+
+            timestamp = datetime.now().isoformat()
+            group_records = plugin_instance._get_group_records(group_id)
+            group_records[:] = [
+                r
+                for r in group_records
+                if r["user_id"] not in [user_id, proposer_id]
+            ]
+
+            marriage_data = [
+                {
+                    "user_id": proposer_id,
+                    "wife_id": user_id,
+                    "wife_name": target_name,
+                    "timestamp": timestamp,
+                    "forced": True,
+                },
+                {
+                    "user_id": user_id,
+                    "wife_id": proposer_id,
+                    "wife_name": proposer_name,
+                    "timestamp": timestamp,
+                    "forced": True,
+                },
+            ]
+            group_records.extend(marriage_data)
+
+            now = time.time()
+            set_propose_cooldown(
+                plugin_instance,
+                group_id,
+                proposer_id,
+                related_user_id=user_id,
+                role="proposer",
+                now=now,
+            )
+            set_propose_cooldown(
+                plugin_instance,
+                group_id,
+                user_id,
+                related_user_id=proposer_id,
+                role="target",
+                now=now,
+            )
+
+            save_json(plugin_instance.records_file, plugin_instance.records)
+            save_json(
+                plugin_instance.marriage_action_file,
+                plugin_instance.marriage_action_records,
+            )
+
+            _delete_requests_by_proposer(group_id, proposer_id)
+
+            event.stop_event()
+            yield event.plain_result(
+                f"🎉 恭喜！{target_name} 接受了 {proposer_name} 的求婚！\n"
+                "你们已正式结为夫妻！"
+            )

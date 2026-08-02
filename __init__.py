@@ -1,0 +1,1 @@
+"""MoFox AstrBot 兼容桥插件。"""

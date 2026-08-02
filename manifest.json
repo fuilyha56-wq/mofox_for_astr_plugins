@@ -1,0 +1,26 @@
+{
+  "name": "mofox_for_astr_plugins",
+  "display_name": "MofoxForAstrPulgins",
+  "version": "0.1.0",
+  "description": "在 MoFox 中加载受限的 OneBot/Aiocqhttp AstrBot Star 插件。",
+  "author": "MoFox Community",
+  "dependencies": {
+    "plugins": ["onebot_expand>=1.0.10"],
+    "components": [
+      "onebot_expand:service:message_service",
+      "onebot_expand:service:account_service"
+    ]
+  },
+  "include": [
+    {"component_type": "event_handler", "component_name": "astr_plugin_bridge", "dependencies": ["onebot_expand:service:message_service", "onebot_expand:service:account_service"]},
+    {"component_type": "router", "component_name": "astr_compat_router", "dependencies": []}
+  ],
+  "entry_point": "plugin.py",
+  "min_core_version": "1.2.0-rc.2",
+  "api_version": {"event_api": "1.0.0"},
+  "python_dependencies": [],
+  "dependencies_required": true,
+  "license": "AGPL-3.0",
+  "categories": ["tool"],
+  "tags": ["astrbot", "compat", "bridge", "star", "plugin-loader"]
+}
