@@ -82,6 +82,8 @@ _SUPPORTED_WEB_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH"})
 _SUPPORTED_HOOKS = frozenset(
     {"on_astrbot_loaded", "on_llm_request", "on_llm_response", "after_message_sent"}
 )
+# AstrBot 默认 wake_prefix 为 ["/"]；桥按此默认值推断唤醒状态并剥离前缀。
+WAKE_PREFIXES: tuple[str, ...] = ("/",)
 _REJECTED_HOOKS = frozenset(
     {
         "on_platform_loaded",
@@ -629,7 +631,14 @@ class AstrPluginUnit:
             self.dynamic_tools.append(_make_function_tool_class(self, namespaced, tool))
 
     def _make_event(self, message: Message) -> AstrMessageEvent:
-        """针对 QQ profile 创建 OneBot 事件，其他平台创建通用事件。"""
+        """针对 QQ profile 创建 OneBot 事件，其他平台创建通用事件。
+
+        同步推断 AstrBot 唤醒状态并写入 ``message.extra["is_at_or_wake_command"]``，
+        使外部插件通过 ``event.is_at_or_wake_command`` 读到与 AstrBot 一致的语义：
+        私聊默认唤醒；群聊在 @机器人、回复机器人或以 wake_prefix（默认 ``/``）
+        开头时唤醒。
+        """
+        _infer_wake_command(message)
         if str(message.platform or "").lower() == "qq":
             return AiocqhttpMessageEvent(
                 self.bridge, message, message.stream_id, unit=self
@@ -651,8 +660,9 @@ class AstrPluginUnit:
         event: AstrMessageEvent,
     ) -> bool:
         """严格判断全部 AstrBot 过滤器。"""
+        is_wake = bool(event.is_at_or_wake_command)
         for entry in filters:
-            if entry.kind == "command" and not _match_command(entry, text):
+            if entry.kind == "command" and not _match_command(entry, text, is_wake):
                 return False
             if entry.kind == "command_group":
                 continue
@@ -695,7 +705,12 @@ class AstrPluginUnit:
         command_filter = next(
             (item for item in filters if item.kind == "command"), None
         )
-        rest = _command_rest(command_filter, text) if command_filter is not None else ""
+        if command_filter is not None:
+            rest = _command_rest(
+                command_filter, text, bool(event.is_at_or_wake_command)
+            )
+        else:
+            rest = ""
         parameters = [
             parameter
             for parameter in inspect.signature(handler).parameters.values()
@@ -1775,10 +1790,76 @@ def _build_handler_schema(
     }
 
 
-def _match_command(entry: _Filter, text: str) -> bool:
-    """匹配普通或嵌套命令组命令，同时识别每级别名。"""
+def _strip_wake_prefix(text: str) -> str:
+    """剥离单个 wake_prefix（默认 ``/``），模拟 AstrBot 唤醒后的 message_str。
+
+    与 ``str.lstrip`` 不同，仅移除首个匹配的前缀，避免 ``"//foo"`` 被
+    全部去掉前导斜杠。wake_prefix 为空字符串时不做处理。
+    """
+    for prefix in WAKE_PREFIXES:
+        if prefix and text.startswith(prefix):
+            return text[len(prefix):]
+    return text
+
+
+def _infer_wake_command(message: Message) -> None:
+    """推断 AstrBot 唤醒状态并写入 ``message.extra["is_at_or_wake_command"]``。
+
+    AstrBot 唤醒语义（见 ``waking_check/stage.py``）：
+    1. 以 wake_prefix（默认 ``/``）开头且群聊首个段不是 @他人 -> 唤醒
+    2. @机器人 -> 唤醒
+    3. 回复机器人的消息 -> 唤醒
+    4. 私聊（默认 ``friend_message_needs_wake_prefix=False``） -> 唤醒
+
+    MoFox OneBotAdapter 不设置该标志，故桥自行推断；已显式设置时不覆盖。
+    """
+    extra = getattr(message, "extra", None)
+    if not isinstance(extra, dict):
+        return
+    if extra.get("is_at_or_wake_command"):
+        return
+    text = str(getattr(message, "processed_plain_text", "") or getattr(message, "content", "") or "")
+    chat_type = str(getattr(message, "chat_type", "") or "").lower()
+    self_id = str(extra.get("self_id", "") or "")
+    is_wake = False
+    if chat_type == "private":
+        is_wake = True
+    if not is_wake:
+        for prefix in WAKE_PREFIXES:
+            if prefix and text.startswith(prefix):
+                is_wake = True
+                break
+    if not is_wake:
+        # 优先使用核心解析后的 at_users / reply_to，避免依赖原始 raw_data
+        # （OneBotAdapter 不透传 raw_message，但核心 converter 已提取 at 段
+        # 并放入 message.extra["at_users"]，reply_to 作为命名属性存在）。
+        at_users = extra.get("at_users") or []
+        for at_user in at_users:
+            if not isinstance(at_user, dict):
+                continue
+            qq = str(at_user.get("user_id", "") or "")
+            if qq and qq == self_id:
+                is_wake = True
+                break
+    if not is_wake and getattr(message, "reply_to", None):
+        is_wake = True
+    if is_wake:
+        extra["is_at_or_wake_command"] = True
+
+
+def _match_command(entry: _Filter, text: str, is_wake: bool) -> bool:
+    """匹配普通或嵌套命令组命令，同时识别每级别名。
+
+    严格遵循 AstrBot 语义：仅在被唤醒（``is_at_or_wake_command`` 为真）时
+    匹配，并在匹配前剥离**单个** wake_prefix（默认 ``/``），避免裸命令名
+    误触发（如 "help me" 不再匹配 ``/help``）。wake_prefix 可为空字符串，
+    表示无前缀要求。
+    """
+    if not is_wake:
+        return False
+    stripped = _strip_wake_prefix(text)
+    words = stripped.strip().split()
     data = entry.value
-    words = text.lstrip("/").strip().split()
     name = str(data.get("name", ""))
     aliases = {name, *set(data.get("alias", set()) or set())}
     group_aliases = data.get("group_path_aliases", ())
@@ -1787,18 +1868,24 @@ def _match_command(entry: _Filter, text: str) -> bool:
             return False
         return (
             all(
-                word in alternatives for word, alternatives in zip(words, group_aliases)
+                word in alternatives
+                for word, alternatives in zip(words, group_aliases)
             )
             and words[len(group_aliases)] in aliases
         )
     return bool(words) and words[0] in aliases
 
 
-def _command_rest(entry: _Filter | None, text: str) -> str:
-    """返回已匹配命令之后的参数字符串。"""
+def _command_rest(entry: _Filter | None, text: str, is_wake: bool = True) -> str:
+    """返回已匹配命令之后的参数字符串。
+
+    与 ``_match_command`` 保持同步：仅在唤醒后剥离单个 wake_prefix，再
+    按命令名/组路径消费对应词数，返回剩余参数字符串。
+    """
     if entry is None:
         return ""
-    words = text.lstrip("/").strip().split()
+    stripped = _strip_wake_prefix(text) if is_wake else text
+    words = stripped.strip().split()
     data = entry.value
     group_aliases = data.get("group_path_aliases", ())
     consumed = len(group_aliases) + 1 if group_aliases else 1

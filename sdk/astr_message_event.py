@@ -398,6 +398,7 @@ def _message_components(
     raw_data = getattr(message, "raw_data", None)
     raw_segments = raw_data.get("message") if isinstance(raw_data, dict) else None
     components: list[BaseMessageComponent] = []
+    has_at_from_raw = False
     if isinstance(raw_segments, list):
         for segment in raw_segments:
             if not isinstance(segment, dict):
@@ -409,6 +410,7 @@ def _message_components(
             if segment_type == "text":
                 components.append(plain_type(text=str(data.get("text", ""))))
             elif segment_type == "at":
+                has_at_from_raw = True
                 components.append(at_type(qq=data.get("qq", data.get("target_user_id", ""))))
             elif segment_type == "reply":
                 components.append(reply_type(id=str(data.get("id", ""))))
@@ -424,6 +426,19 @@ def _message_components(
                 source = str(data.get("url", data.get("file", "")))
                 if source:
                     components.append(video_type(file=source, url=str(data.get("url", ""))))
+    # OneBotAdapter 不透传 raw_message，此时 raw_segments 为 None；宿主核心
+    # converter 已把 at 段解析到 message.extra["at_users"]，据此补齐 At 组件，
+    # 使 astrbot 兼容插件的 get_ats(event) 能取到真实 @ 目标而非 fallback 到
+    # sender_id。
+    if not has_at_from_raw:
+        extra = getattr(message, "extra", {})
+        if isinstance(extra, dict):
+            for at_entry in extra.get("at_users") or []:
+                if not isinstance(at_entry, dict):
+                    continue
+                user_id = at_entry.get("user_id", "")
+                if user_id:
+                    components.append(at_type(qq=user_id))
     text = str(getattr(message, "processed_plain_text", "") or getattr(message, "content", "") or "")
     has_text_segment = any(isinstance(component, plain_type) for component in components)
     if text and not has_text_segment:
