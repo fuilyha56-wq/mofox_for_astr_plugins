@@ -44,3 +44,7 @@ htmlcov/
 # MoFox-Bot specific
 config/local_*.toml
 *.log
+
+# Plugins
+plugins/*
+!plugins/README.md
