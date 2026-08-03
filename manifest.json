@@ -1,7 +1,7 @@
 {
   "name": "mofox_for_astr_plugins",
   "display_name": "MofoxForAstrPulgins",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "在 MoFox 中加载受限的 OneBot/Aiocqhttp AstrBot Star 插件。",
   "author": "MoFox Community",
   "dependencies": {
