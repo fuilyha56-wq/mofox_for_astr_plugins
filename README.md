@@ -52,7 +52,7 @@ flowchart LR
 
 - Neo-MoFox 主程序已启动，且 `onebot_expand >= 1.0.10` 与 `onebot_adapter` 已加载（WebUI → 插件管理页可见二者均为已加载）；
 - OneBot 协议端（NapCat / LLBot 等）已连接，`qq` 平台适配器处于 active 状态；
-- 桥本身在插件管理页显示为已加载（`MofoxForAstrPulgins v0.2.0`）。
+- 桥本身在插件管理页显示为已加载（`MofoxForAstrPulgins v0.1.2`）。
 
 ### 2. 放入 AstrBot 插件
 
