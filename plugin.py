@@ -1596,7 +1596,7 @@ class AstrCompatPlugin(BasePlugin):
 
     plugin_name = "mofox_for_astr_plugins"
     plugin_description = "在 Neo-MoFox 中运行受限的 AstrBot OneBot Star 插件"
-    plugin_version = "0.1.2"
+    plugin_version = "0.1.3"
     configs = [AstrCompatConfig]
 
     def __init__(self, config: AstrCompatConfig | None = None) -> None:
