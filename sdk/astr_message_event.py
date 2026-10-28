@@ -38,12 +38,13 @@ class PlatformMetadata:
 
 
 class MessageType:
-    """AstrBot 消息类型常量。"""
+    """AstrBot 4.29.3 消息类型兼容常量。"""
 
-    GROUP_MESSAGE = "group"
-    PRIVATE_MESSAGE = "private"
-    NOTICE_MESSAGE = "notice"
-    OTHER_MESSAGE = "other"
+    GROUP_MESSAGE = "GroupMessage"
+    FRIEND_MESSAGE = "FriendMessage"
+    PRIVATE_MESSAGE = FRIEND_MESSAGE
+    NOTICE_MESSAGE = "OtherMessage"
+    OTHER_MESSAGE = NOTICE_MESSAGE
 
 
 @dataclass

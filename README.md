@@ -52,7 +52,7 @@ flowchart LR
 
 - Neo-MoFox 主程序已启动，且 `onebot_expand >= 1.0.10` 与 `onebot_adapter` 已加载（WebUI → 插件管理页可见二者均为已加载）；
 - OneBot 协议端（NapCat / LLBot 等）已连接，`qq` 平台适配器处于 active 状态；
-- 桥本身在插件管理页显示为已加载（`MofoxForAstrPulgins v0.1.3`）。
+- 桥本身在插件管理页显示为已加载（`MofoxForAstrPulgins v0.2.1`）。
 
 ## 依赖
 
@@ -190,3 +190,4 @@ stateDiagram-v2
 
 这证明桥与公开 Neo-MoFox OneBot 传输链路的集成语义；**不等同于**真实 QQ、NapCat 或
 SnowLuma 的生产部署验收。生产协议端仍需在目标环境中单独验证。
+

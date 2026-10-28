@@ -8,6 +8,7 @@ from collections.abc import Coroutine
 from typing import Any
 
 from ..errors import AgentLoopUnsupportedError, UnsupportedAstrCapabilityError
+from .astr_message_event import AstrBotMessage
 from .message_event_result import MessageChain
 
 
@@ -35,6 +36,47 @@ def register(
         return cls
 
     return decorator
+
+
+class StarTools:
+    """AstrBot 4.29.3 utility facade bound to the bridge context."""
+
+    _context: "Context | None" = None
+
+    @classmethod
+    def initialize(cls, context: "Context") -> None:
+        cls._context = context
+
+    @classmethod
+    async def send_message(cls, session: str, message_chain: MessageChain) -> bool:
+        if cls._context is None:
+            raise ValueError("StarTools not initialized")
+        return await cls._context.send_message(session, message_chain)
+
+    @classmethod
+    async def create_message(
+        cls,
+        type: str,
+        self_id: str,
+        session_id: str,
+        sender: Any,
+        message: list[Any],
+        message_str: str,
+        message_id: str = "",
+        raw_message: Any = None,
+        group_id: str = "",
+    ) -> Any:
+        return AstrBotMessage(
+            type=type,
+            self_id=self_id,
+            session_id=session_id,
+            sender=sender,
+            message=message,
+            message_str=message_str,
+            message_id=message_id,
+            raw_message=raw_message,
+            group_id=group_id,
+        )
 
 
 class Star:
@@ -279,4 +321,4 @@ class Context:
         self._bridge.register_task(coro, unit=self._unit)
 
 
-__all__ = ["Context", "Star", "register"]
+__all__ = ["Context", "Star", "StarTools", "register"]

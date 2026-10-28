@@ -11,11 +11,17 @@ from ..errors import ConfigPersistenceUnsupportedError, UnknownProviderIdError
 
 @dataclass
 class ProviderMetaData:
-    """provider 元数据。"""
+    """AstrBot 4.29.3 provider 元数据。"""
 
     id: str = ""
     name: str = ""
     type: str = ""
+    model: str | None = None
+    provider_type: Any = None
+    desc: str = ""
+    cls_type: Any = None
+    default_config_tmpl: dict[str, Any] | None = None
+    provider_display_name: str | None = None
 
 
 class Provider:
@@ -58,14 +64,34 @@ class Provider:
 
 @dataclass
 class LLMResponse:
-    """LLM 响应对象。"""
+    """AstrBot 4.29.3 LLM 响应字段兼容对象。"""
 
     content: str = ""
     role: str = "assistant"
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     reasoning_content: str | None = None
-    reasoning_parts: list[Any] | None = None
+    reasoning_signature: str | None = None
+    tools_call_args: list[dict[str, Any]] = field(default_factory=list)
+    tools_call_name: list[str] = field(default_factory=list)
+    tools_call_ids: list[str] = field(default_factory=list)
+    tools_call_extra_content: dict[str, dict[str, Any]] = field(default_factory=dict)
+    result_chain: Any = None
+    raw_completion: Any = None
     raw: Any = None
+    is_chunk: bool = False
+    id: str | None = None
+    usage: Any = None
+
+    @property
+    def completion_text(self) -> str:
+        """Return the normalized plain-text response."""
+        if self.result_chain is not None and hasattr(self.result_chain, "get_plain_text"):
+            return str(self.result_chain.get_plain_text())
+        return self.content
+
+    @completion_text.setter
+    def completion_text(self, value: str | None) -> None:
+        self.content = str(value or "")
 
 
 @dataclass

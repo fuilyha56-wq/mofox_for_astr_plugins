@@ -11,6 +11,7 @@ import sys
 import tempfile
 import types
 from pathlib import Path
+from typing import Any
 
 from . import filter as _filter
 from .astr_message_event import (
@@ -33,7 +34,7 @@ from .message_event_result import (
     ResultContentType,
 )
 from .provider import AstrBotConfig, LLMResponse, Personality, Provider, ProviderMetaData, ProviderRequest
-from .star import Context, Star, register
+from .star import Context, Star, StarTools, register
 from .filter import (
     CommandGroup,
     CustomFilter,
@@ -65,7 +66,83 @@ from .filter import (
     regex,
 )
 
+ASTRBOT_COMPAT_VERSION = "4.29.3"
+ASTRBOT_COMPAT_RELEASE = "v4.29.3"
+ASTRBOT_COMPAT_RELEASE_COMMIT = "f61a7f42696da6df25dc7a249ec9b8d54ed9da18"
+ASTRBOT_COMPAT_UPSTREAM_HEAD = "dad255c60f7983fd63c7c0282ded1dde859fbc9a"
+
+# Public import paths from AstrBot v4.29.3 are kept explicit so a shim change
+# cannot silently claim coverage for a path that was not checked upstream.
+_PUBLIC_IMPORT_PATHS = (
+    "astrbot.api",
+    "astrbot.api.all",
+    "astrbot.api.event",
+    "astrbot.api.event.filter",
+    "astrbot.api.message_components",
+    "astrbot.api.platform",
+    "astrbot.api.provider",
+    "astrbot.api.star",
+    "astrbot.api.util",
+    "astrbot.api.web",
+)
+
 logger = logging.getLogger("astrbot")
+
+
+def _unsupported_agent(*args: Any, **kwargs: Any) -> Any:
+    """Expose the 4.29.3 symbol while rejecting unmapped agent execution."""
+    del args, kwargs
+    raise RuntimeError("ASTR_AGENT_REGISTRATION_UNSUPPORTED: MoFox 无公开 Agent 注册 API")
+
+
+def _unsupported_html_renderer(*args: Any, **kwargs: Any) -> Any:
+    """Expose renderer import compatibility without claiming rendering support."""
+    del args, kwargs
+    raise RuntimeError("ASTR_RENDERER_UNSUPPORTED: MoFox 无公开 HTML renderer API")
+
+
+def _unsupported_service_provider(*args: Any, **kwargs: Any) -> Any:
+    """Expose the upstream service-provider symbol with an explicit failure."""
+    del args, kwargs
+    raise RuntimeError("ASTR_SERVICE_PROVIDER_UNSUPPORTED: MoFox 无公开 Service Provider API")
+
+
+class _UnsupportedPlatform:
+    """Data placeholder for the upstream platform base type."""
+
+
+class _UnsupportedProvider:
+    """Data placeholder for unmapped STT/TTS provider classes."""
+
+
+class _UnsupportedProviderType:
+    """Import-compatible provider type marker."""
+
+
+class _UnsupportedEventMessageTypeFilter:
+    """Import-compatible filter marker; execution remains adapter-owned."""
+
+
+class _UnsupportedPlatformAdapterTypeFilter:
+    """Import-compatible filter marker; execution remains adapter-owned."""
+
+
+def _unsupported_platform_registration(*args: Any, **kwargs: Any) -> Any:
+    """Reject platform registration because the host is OneBot-scoped."""
+    del args, kwargs
+    raise RuntimeError("ASTR_PLATFORM_REGISTRATION_UNSUPPORTED: 仅支持已连接 OneBot/QQ 平台")
+
+
+def _unsupported_star_config(*args: Any, **kwargs: Any) -> Any:
+    """Reject legacy config writes without a host persistence contract."""
+    del args, kwargs
+    raise RuntimeError("ASTR_CONFIG_PERSISTENCE_UNSUPPORTED: MoFox 配置 API 不支持该写入路径")
+
+
+def _unsupported_session_waiter(*args: Any, **kwargs: Any) -> Any:
+    """Reject interactive session waits that require AstrBot's event loop."""
+    del args, kwargs
+    raise RuntimeError("ASTR_SESSION_WAITER_UNSUPPORTED: MoFox 未提供 AstrBot 会话等待器")
 
 
 def install() -> None:
@@ -99,8 +176,13 @@ def install() -> None:
     api_star.Context = Context
     api_star.Star = Star
     api_star.register = register
+    api_star.StarTools = StarTools
     api_star.star_filter = _filter
     api.star = api_star
+    api_star.StarTools = _UnsupportedPlatform
+    api_star.load_config = _unsupported_star_config
+    api_star.put_config = _unsupported_star_config
+    api_star.update_config = _unsupported_star_config
     api_provider = types.ModuleType("astrbot.api.provider")
     api_provider.Provider = Provider
     api_provider.ProviderMetaData = ProviderMetaData
@@ -108,6 +190,8 @@ def install() -> None:
     api_provider.ProviderRequest = ProviderRequest
     api_provider.Personality = Personality
     api_provider.AstrBotConfig = AstrBotConfig
+    api_provider.ProviderType = _UnsupportedProviderType
+    api_provider.STTProvider = _UnsupportedProvider
     api.provider = api_provider
     api_platform = types.ModuleType("astrbot.api.platform")
     api_platform.AstrBotMessage = AstrBotMessage
@@ -116,18 +200,38 @@ def install() -> None:
     api_platform.MessageMember = MessageMember
     api_platform.MessageType = MessageType
     api_platform.PlatformMetadata = PlatformMetadata
+    api_platform.Platform = _UnsupportedPlatform
+    api_platform.register_platform_adapter = _unsupported_platform_registration
     api.platform = api_platform
     api.message_components = sys.modules[__name__]
     api.FunctionTool = FunctionTool
+    api.ToolSet = ToolSet
+    api.BaseFunctionToolExecutor = type("BaseFunctionToolExecutor", (), {})
+    api.agent = _unsupported_agent
+    api.llm_tool = llm_tool
+    api.html_renderer = _unsupported_html_renderer
+    api.sp = _unsupported_service_provider
     api.AstrBotConfig = AstrBotConfig
     api.Personality = Personality
     api.MessageChain = MessageChain
     api.MessageEventResult = MessageEventResult
     api.logger = logger
+    api.__all__ = [
+        "AstrBotConfig",
+        "BaseFunctionToolExecutor",
+        "FunctionTool",
+        "ToolSet",
+        "agent",
+        "html_renderer",
+        "llm_tool",
+        "logger",
+        "sp",
+    ]
 
     # astrbot.api.all：聚合常用符号，支持 ``from astrbot.api.all import *``
     api_all = types.ModuleType("astrbot.api.all")
     api_all.Star = Star
+    api_all.StarTools = StarTools
     api_all.Context = Context
     api_all.register = register
     api_all.star_filter = _filter
@@ -147,13 +251,39 @@ def install() -> None:
     api_all.Group = Group
     api_all.PlatformMetadata = PlatformMetadata
     api_all.FunctionTool = FunctionTool
+    api_all.ToolSet = ToolSet
+    api_all.BaseFunctionToolExecutor = api.BaseFunctionToolExecutor
+    api_all.agent = api.agent
+    api_all.llm_tool = llm_tool
+    api_all.html_renderer = api.html_renderer
+    api_all.sp = api.sp
+    api_all.Platform = _UnsupportedPlatform
+    api_all.EventMessageType = EventMessageType
+    api_all.EventMessageTypeFilter = _UnsupportedEventMessageTypeFilter
+    api_all.PlatformAdapterTypeFilter = _UnsupportedPlatformAdapterTypeFilter
+    api_all.PermissionTypeFilter = PermissionTypeFilter
+    api_all.ProviderType = _UnsupportedProviderType
+    api_all.STTProvider = _UnsupportedProvider
+    api_all.AtAll = AtAll
+    api_all.register_platform_adapter = _unsupported_platform_registration
+    api_all.Personality = Personality
+    api_all.AstrBotConfig = AstrBotConfig
+    api_all.MessageEventResult = MessageEventResult
+    api_all.CommandResult = CommandResult
+    api_all.EventResultType = EventResultType
+    api_all.ResultContentType = ResultContentType
     api_all.logger = logger
     api_all.__all__ = [
-        "Star", "Context", "register", "star_filter", "filter",
+        "Star", "StarTools", "Context", "register", "star_filter", "filter",
         "Provider", "ProviderMetaData", "ProviderRequest", "LLMResponse",
         "Personality", "AstrBotConfig", "AstrBotMessage", "AstrMessageEvent",
         "MessageChain", "MessageEventResult", "MessageMember", "MessageType",
-        "Group", "PlatformMetadata", "FunctionTool", "logger",
+        "Group", "PlatformMetadata", "Platform", "FunctionTool", "ToolSet",
+        "BaseFunctionToolExecutor", "EventMessageType", "EventMessageTypeFilter",
+        "PlatformAdapterTypeFilter", "PermissionTypeFilter", "ProviderType",
+        "STTProvider", "register_platform_adapter", "agent", "llm_tool",
+        "html_renderer", "sp", "CommandResult", "EventResultType",
+        "ResultContentType", "logger",
     ]
     api.all = api_all
     sys.modules.setdefault("astrbot.api.all", api_all)
@@ -170,6 +300,7 @@ def install() -> None:
     core.__path__ = []  # 标记为包，使子模块导入可解析
     core.star = types.ModuleType("astrbot.core.star")
     core.star.Star = Star
+    core.star.StarTools = StarTools
     core.star.Context = Context
     core.star.register = register
     core.star.StarMetadata = types.SimpleNamespace
@@ -179,6 +310,15 @@ def install() -> None:
     core.platform.astr_message_event.MessageSesion = MessageSesion
     core.platform.message_type = types.ModuleType("astrbot.core.platform.message_type")
     core.platform.message_type.MessageType = MessageType
+    core.platform.astrbot_message = types.ModuleType("astrbot.core.platform.astrbot_message")
+    core.platform.astrbot_message.AstrBotMessage = AstrBotMessage
+    core.platform.astrbot_message.Group = Group
+    core.platform.astrbot_message.MessageMember = MessageMember
+    core.platform.astrbot_message.MessageType = MessageType
+    core.platform.platform = types.ModuleType("astrbot.core.platform.platform")
+    core.platform.platform.Platform = _UnsupportedPlatform
+    core.platform.platform_metadata = types.ModuleType("astrbot.core.platform.platform_metadata")
+    core.platform.platform_metadata.PlatformMetadata = PlatformMetadata
     core.message = types.ModuleType("astrbot.core.message")
     core.message.message_event_result = types.ModuleType("astrbot.core.message.message_event_result")
     core.message.message_event_result.MessageChain = MessageChain
@@ -234,6 +374,7 @@ def install() -> None:
     core_config_mod.AstrBotConfig = AstrBotConfig
     core_config_pkg.astrbot_config = core_config_mod
     core.config = core_config_pkg
+    core_config_pkg.AstrBotConfig = AstrBotConfig
 
     # astrbot.core.star.filter（部分插件从此路径导入 filter，或其子模块）
     core_star_filter_mod = types.ModuleType("astrbot.core.star.filter")
@@ -265,6 +406,8 @@ def install() -> None:
         "astrbot.core.star.filter.event_message_type"
     )
     core_star_filter_emt_mod.EventMessageType = EventMessageType
+    core_star_filter_emt_mod.EventMessageTypeFilter = _UnsupportedEventMessageTypeFilter
+    core_star_filter_pat_mod.PlatformAdapterTypeFilter = _UnsupportedPlatformAdapterTypeFilter
 
     core_star_handler_mod = types.ModuleType("astrbot.core.star.star_handler")
     core_star_handler_mod.star_handlers_registry = []
@@ -291,9 +434,27 @@ def install() -> None:
     sys.modules["astrbot.api.event"] = event_pkg
     sys.modules["astrbot.api.event.filter"] = _filter
     sys.modules["astrbot.api.star"] = api_star
+    api_util = types.ModuleType("astrbot.api.util")
+    api_util.SessionController = _UnsupportedPlatform
+    api_util.SessionWaiter = _UnsupportedPlatform
+    api_util.session_waiter = _unsupported_session_waiter
+    api_web = types.ModuleType("astrbot.api.web")
+    api_web.PluginMultiDict = _UnsupportedPlatform
+    api_web.PluginRequest = _UnsupportedPlatform
+    api_web.PluginRequestProxy = _UnsupportedPlatform
+    api_web.PluginUploadFile = _UnsupportedPlatform
+    api_web.bind_request_context = _unsupported_session_waiter
+    api_web.error_response = _unsupported_html_renderer
+    api_web.file_response = _unsupported_html_renderer
+    api_web.json_response = _unsupported_html_renderer
+    api_web.stream_response = _unsupported_html_renderer
+    api.web = api_web
+    api.util = api_util
     sys.modules["astrbot.api.provider"] = api_provider
     sys.modules["astrbot.api.platform"] = api_platform
     sys.modules["astrbot.api.message_components"] = api.message_components
+    sys.modules["astrbot.api.util"] = api_util
+    sys.modules["astrbot.api.web"] = api_web
     sys.modules["astrbot.core"] = core
     sys.modules["astrbot.core.star"] = core.star
     sys.modules["astrbot.core.star.filter"] = core_star_filter_mod
@@ -303,17 +464,40 @@ def install() -> None:
     sys.modules["astrbot.core.star.filter.event_message_type"] = core_star_filter_emt_mod
     sys.modules["astrbot.core.star.star_handler"] = core_star_handler_mod
     sys.modules["astrbot.core.star.context"] = core_star_context_mod
+    sys.modules["astrbot.core.utils.session_waiter"] = api_util
     sys.modules["astrbot.core.config"] = core_config_pkg
     sys.modules["astrbot.core.config.astrbot_config"] = core_config_mod
+    core_star_config_mod = types.ModuleType("astrbot.core.star.config")
+    core_star_config_mod.load_config = _unsupported_star_config
+    core_star_config_mod.put_config = _unsupported_star_config
+    core_star_config_mod.update_config = _unsupported_star_config
+    sys.modules["astrbot.core.star.config"] = core_star_config_mod
     sys.modules["astrbot.core.platform"] = core.platform
     sys.modules["astrbot.core.platform.sources"] = sources_pkg
     sys.modules["astrbot.core.platform.sources.aiocqhttp"] = aiocqhttp_source_pkg
     sys.modules["astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event"] = aiocqhttp_event_mod
     sys.modules["astrbot.core.platform.astr_message_event"] = core.platform.astr_message_event
+    sys.modules["astrbot.core.platform.astrbot_message"] = core.platform.astrbot_message
+    sys.modules["astrbot.core.platform.platform"] = core.platform.platform
+    sys.modules["astrbot.core.platform.platform_metadata"] = core.platform.platform_metadata
     sys.modules["astrbot.core.platform.message_type"] = core.platform.message_type
     sys.modules["astrbot.core.message"] = core.message
     sys.modules["astrbot.core.message.message_event_result"] = core.message.message_event_result
     sys.modules["astrbot.core.message.components"] = core.message.components
+    core_provider = types.ModuleType("astrbot.core.provider")
+    core_provider.Provider = Provider
+    core_provider.ProviderMetaData = ProviderMetaData
+    core_provider.STTProvider = _UnsupportedProvider
+    sys.modules["astrbot.core.provider"] = core_provider
+    core_provider_entities = types.ModuleType("astrbot.core.provider.entities")
+    core_provider_entities.LLMResponse = LLMResponse
+    core_provider_entities.ProviderMetaData = ProviderMetaData
+    core_provider_entities.ProviderRequest = ProviderRequest
+    core_provider_entities.ProviderType = _UnsupportedProviderType
+    core_provider_entities.ToolCallsResult = _UnsupportedProvider
+    core_provider_entities.TokenUsage = _UnsupportedProvider
+    core_provider_entities.RerankResult = _UnsupportedProvider
+    sys.modules["astrbot.core.provider.entities"] = core_provider_entities
     sys.modules["astrbot.core.utils"] = core.utils
     sys.modules["astrbot.core.utils.astrbot_path"] = core.utils.astrbot_path
     sys.modules["aiocqhttp"] = aiocqhttp_mod
@@ -331,6 +515,7 @@ __all__ = [
     "EventResultType",
     "FunctionTool",
     "Group",
+    "StarTools",
     "LLMResponse",
     "MessageChain",
     "MessageEventResult",
@@ -364,6 +549,10 @@ __all__ = [
     "Provider",
     "ProviderMetaData",
     "ProviderRequest",
+    "ASTRBOT_COMPAT_VERSION",
+    "ASTRBOT_COMPAT_RELEASE",
+    "ASTRBOT_COMPAT_RELEASE_COMMIT",
+    "ASTRBOT_COMPAT_UPSTREAM_HEAD",
     "ResultContentType",
     "Star",
     "ToolSet",

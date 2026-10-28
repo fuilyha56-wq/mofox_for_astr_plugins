@@ -8,22 +8,24 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 
-class EventMessageType(enum.Enum):
-    """AstrBot 消息事件类型。"""
+class EventMessageType(enum.Flag):
+    """AstrBot 4.29.3 消息事件类型。"""
 
-    ALL = "all"
-    GROUP_MESSAGE = "group"
-    PRIVATE_MESSAGE = "private"
+    GROUP_MESSAGE = enum.auto()
+    PRIVATE_MESSAGE = enum.auto()
+    OTHER_MESSAGE = enum.auto()
+    ALL = GROUP_MESSAGE | PRIVATE_MESSAGE | OTHER_MESSAGE
 
 
 class PlatformAdapterType(enum.Flag):
-    """AstrBot 平台适配器类型。"""
+    """AstrBot 4.29.3 平台适配器类型。"""
 
-    ALL = 0
     AIOCQHTTP = enum.auto()
     QQOFFICIAL = enum.auto()
+    QQOFFICIAL_WEBHOOK = enum.auto()
     TELEGRAM = enum.auto()
     WECOM = enum.auto()
+    WECOM_AI_BOT = enum.auto()
     LARK = enum.auto()
     DINGTALK = enum.auto()
     DISCORD = enum.auto()
@@ -34,6 +36,11 @@ class PlatformAdapterType(enum.Flag):
     SATORI = enum.auto()
     MISSKEY = enum.auto()
     LINE = enum.auto()
+    MATRIX = enum.auto()
+    WEIXIN_OC = enum.auto()
+    MATTERMOST = enum.auto()
+    WEBCHAT = enum.auto()
+    ALL = enum.auto()
 
 
 class PermissionType(enum.Enum):
@@ -54,6 +61,25 @@ class PermissionTypeFilter:
         """保存权限等级与拒绝时是否抛错。"""
         self.permission_type = permission_type
         self.raise_error = raise_error
+
+    def filter(self, event: Any, cfg: Any) -> bool:
+        """保留官方过滤器调用形状；桥事件分派负责最终权限判断。"""
+        del event, cfg
+        return True
+
+
+class EventMessageTypeFilter:
+    """AstrBot 4.29.3 事件类型过滤器的数据兼容实现。"""
+
+    def __init__(self, event_message_type: EventMessageType) -> None:
+        self.event_message_type = event_message_type
+
+
+class PlatformAdapterTypeFilter:
+    """AstrBot 4.29.3 平台类型过滤器的数据兼容实现。"""
+
+    def __init__(self, platform_adapter_type: PlatformAdapterType | str) -> None:
+        self.platform_type = platform_adapter_type
 
 
 @dataclass

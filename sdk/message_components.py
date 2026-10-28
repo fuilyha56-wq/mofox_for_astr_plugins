@@ -48,6 +48,14 @@ class At(BaseMessageComponent):
 
 
 @dataclass
+class AtAll(At):
+    """AstrBot 4.29.3 的 @全体成员组件。"""
+
+    qq: str | int = "all"
+    type: ClassVar[str] = "at"
+
+
+@dataclass
 class Image(BaseMessageComponent):
     """图片消息组件，支持 URL、文件路径和 Base64。"""
 
@@ -199,11 +207,12 @@ ComponentTypes: dict[str, type[Any]] = {
 }
 
 _COMPONENT_CLASS_NAMES = frozenset(
-    {"Plain", "At", "Image", "Record", "Reply", "Video", "File"}
+    {"Plain", "At", "AtAll", "Image", "Record", "Reply", "Video", "File"}
 )
 _COMPONENT_KIND_BY_CLASS_NAME = {
     "Plain": "plain",
     "At": "at",
+    "AtAll": "at",
     "Image": "image",
     "Record": "record",
     "Reply": "reply",
@@ -213,6 +222,7 @@ _COMPONENT_KIND_BY_CLASS_NAME = {
 _COMPONENT_TYPE_VALUES = {
     "Plain": frozenset({"plain", "text"}),
     "At": frozenset({"at"}),
+    "AtAll": frozenset({"at"}),
     "Image": frozenset({"image"}),
     "Record": frozenset({"record", "voice"}),
     "Reply": frozenset({"reply"}),
@@ -284,6 +294,7 @@ def _component_kind(component: Any) -> str | None:
     canonical_types: tuple[tuple[str, type[Any]], ...] = (
         ("Plain", Plain),
         ("At", At),
+        ("AtAll", AtAll),
         ("Reply", Reply),
         ("Image", Image),
         ("Record", Record),
@@ -349,7 +360,11 @@ def chain_to_onebot_segments(chain: list[BaseMessageComponent] | None) -> list[d
             target = str(_component_value(component, "qq", "At")).strip()
             if not target:
                 raise UnsupportedMessageSegmentError("At 组件缺少目标 QQ 号")
-            segments.append({"type": "at", "data": {"qq": target}})
+            data = {"qq": target}
+            name = str(getattr(component, "name", "") or "")
+            if name:
+                data["name"] = name
+            segments.append({"type": "at", "data": data})
         elif component_kind == "reply":
             message_id = str(_component_value(component, "id", "Reply")).strip()
             if not message_id:
@@ -435,6 +450,7 @@ def _media_source(value: str, component_name: str) -> str:
 
 __all__ = [
     "At",
+    "AtAll",
     "BaseMessageComponent",
     "ComponentTypes",
     "Face",

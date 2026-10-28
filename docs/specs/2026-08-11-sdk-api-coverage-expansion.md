@@ -1,7 +1,7 @@
 # AstrBot SDK/API 覆盖扩展规格
 
 > 状态：设计已确认，待实施。  
-> 上游基线：AstrBot Core 4.27.2。  
+> 上游基线：AstrBot Core 4.29.3。  
 > 宿主基线：Neo-MoFox 1.3.0-alpha.0，`onebot_expand>=1.0.10`。  
 > 目标：先修正现有运行契约错位，再扩大可导入 SDK 面和可真实执行能力；任何没有宿主等价实现的路径继续明确失败。
 
@@ -10,7 +10,7 @@
 本轮采用“契约对齐优先”的扩展顺序：
 
 1. 修复生命周期、事件上下文、LLM 实体和工具调用来源绑定；
-2. 以 AstrBot 4.27.2 的公开导出建立版本化 SDK 导入矩阵；
+2. 以 AstrBot 4.29.3 的公开导出建立版本化 SDK 导入矩阵；
 3. 对能映射到 Neo-MoFox 公开 API 的能力补齐真实执行；
 4. 对只能满足导入、不能满足行为的类型提供可实例化数据模型，但在执行边界明确拒绝；
 5. 仍无法无损表达的能力保持拒绝，不使用空对象、固定 `True`、全局最近消息或静默降级。
@@ -24,11 +24,11 @@
 | `AstrPluginUnit.activate()` / `register_task()` | `initialize()` 执行时状态仍为 `REGISTERED`，而任务注册只允许 `ACTIVE` | 增加 `ACTIVATING`，允许初始化期间登记受管任务；初始化失败时取消本阶段创建的任务 |
 | `_run_simple_hooks()` | `after_message_sent` 处理器无参数调用 | 从宿主事件参数构造真实 `AstrMessageEvent` 并按官方签名调用 |
 | `_run_llm_request_hooks()` / `_run_llm_response_hooks()` | 将 `event=None` 传给钩子 | 仅使用当前调用链或可验证 stream 映射得到的真实事件；无法解析事件时不伪造 |
-| `ProviderRequest` | 以宿主内部 `payloads/tools/stream/meta_data` 为主模型，缺少 4.27.2 的多模态、工具结果和会话字段 | 以 AstrBot 4.27.2 的完整公开字段为规范，并把宿主数据放在桥适配层 |
+| `ProviderRequest` | 以宿主内部 `payloads/tools/stream/meta_data` 为主模型，缺少 4.29.3 的多模态、工具结果和会话字段 | 以 AstrBot 4.29.3 的完整公开字段为规范，并把宿主数据放在桥适配层 |
 | `CompatLLMResponse` | 主要暴露 `content/tool_calls`，且把宿主 `reasoning_parts` 当作 Astr 公共字段 | 规范暴露 `completion_text`、`result_chain`、`tools_call_*`、`reasoning_content` 和 `reasoning_signature`，保留经过测试的兼容别名 |
 | `_latest_event()` | 从整个单元取最后一条消息作为工具来源 | 工具调用必须绑定当前 host `stream_id`；缺少来源时失败，不跨会话猜测 |
 | `AstrMessageEvent.should_call_llm()` | 标志可写但宿主从不读取 | 不再伪装支持；在宿主出现独立 LLM 门控契约前，设置 `False` 明确报不支持 |
-| SDK `install()` | 约 40 个模块别名，缺少若干 4.27.2 公开路径 | 由版本化模块表安装全部已分类路径，并用导入测试防漂移 |
+| SDK `install()` | 约 40 个模块别名，缺少若干 4.29.3 公开路径 | 由版本化模块表安装全部已分类路径，并用导入测试防漂移 |
 
 `stop_event()` 不属于上述缺陷：当前路径会经 `event.is_stopped()` 聚合为宿主 `EventDecision.STOP`。本轮只补充其测试，不改变该语义。
 
@@ -135,7 +135,7 @@ AstrBot 的 `should_call_llm(False)` 与 Neo-MoFox 的 `EventDecision.STOP` 不�
 
 ### 6.1 `ProviderRequest`
 
-4.27.2 兼容对象以以下公共字段为规范：
+4.29.3 兼容对象以以下公共字段为规范：
 
 ```text
 prompt
@@ -190,7 +190,7 @@ raw_completion
 - `result_chain` / `completion_text -> params["message"]`；
 - 工具名称、参数和 ID 按索引校验后重建 `ToolCall`；
 - `reasoning_content` 原样回写；`reasoning_signature` 仅在宿主存在同义公开字段时回写；
-- 宿主专有的 `reasoning_parts` 只保存在桥私有适配状态，不作为 Astr 4.27.2 公共字段；
+- 宿主专有的 `reasoning_parts` 只保存在桥私有适配状态，不作为 Astr 4.29.3 公共字段；
 - `raw_completion`、`usage` 和 `tools_call_extra_content` 只有在宿主提供同义数据时暴露，否则使用诚实的 `None` / 空值；
 - 长度不一致或参数非对象时拒绝该次修改。
 
@@ -230,7 +230,7 @@ canonical_source
 - `astrbot.core.message.message_event_result`
 
 已有别名继续保留，但每个别名必须指向同一 canonical 类对象，不能复制出破坏 `isinstance()` 的平行类型。
-4.27.2 不存在 `astrbot.core.star.register.filter`；兼容表不得创建上游不存在的路径来掩盖错误导入。
+4.29.3 不存在 `astrbot.core.star.register.filter`；兼容表不得创建上游不存在的路径来掩盖错误导入。
 
 ### 7.2 顶层与工具导出
 
@@ -245,11 +245,11 @@ canonical_source
 | `PluginKVStoreMixin` 及 `Star.put/get/delete_kv_data` | E | 映射到宿主 `storage_api`，按单元 slug 隔离 |
 | `astrbot.api.util` 会话等待器 | I | 保持官方导入名；未建立可取消、可卸载的等价会话等待语义前明确失败 |
 | `astrbot.api.web` 请求/响应数据类型 | D/E | 数据包装可构造；仅经桥隔离 Router 注册的请求路径可执行 |
-| `ComponentType` | D | 与 4.27.2 枚举值一致，可导入和比较 |
+| `ComponentType` | D | 与 4.29.3 枚举值一致，可导入和比较 |
 | `AtAll` | D，条件 E | 可构造；仅 OneBot profile 且适配器验收通过时转为全体 `at` 段 |
 | `Json` | D/I | 可保存原始 JSON；当前通用出站链无无损映射时明确失败 |
 | `Unknown` | D/I | 保留入站未知段，不允许未经登记直接出站 |
-| 其余 4.27.2 公开组件 | 逐项分类 | 由消息段契约测试决定 E、D/I 或 R |
+| 其余 4.29.3 公开组件 | 逐项分类 | 由消息段契约测试决定 E、D/I 或 R |
 
 ### 7.3 KV 存储
 
@@ -264,7 +264,7 @@ compat_astr/{slug}/kv
 - 值必须可由宿主 JSON 存储层序列化；
 - `get_kv_data(key, default)` 不得跨单元读取；
 - 写入使用原子存储入口；
-- 删除不存在键返回与 4.27.2 一致的可观察结果；
+- 删除不存在键返回与 4.29.3 一致的可观察结果；
 - 卸载不删除持久数据，除非用户显式请求。
 
 ## 8. OneBot 与消息组件覆盖
@@ -314,7 +314,7 @@ compat_astr/{slug}/kv
 涉及：`sdk/__init__.py`、`sdk/message_components.py`、新增的 util/web/register/KV 兼容模块。
 
 - 建立版本化模块表；
-- 增加 4.27.2 import fixture；
+- 增加 4.29.3 import fixture；
 - 实现 `StarTools`、KV、组件数据模型；
 - 为全部导出标注 E/D/I/R。
 
@@ -347,7 +347,7 @@ compat_astr/{slug}/kv
 | A207 | `after_message_sent` | 处理器收到真实出站事件；缺事件时不调用 |
 | A208 | LLM 请求钩子 | 文本、多模态、工具、工具结果、会话和模型字段正确，修改可重建 payloads/tools |
 | A209 | LLM 响应钩子 | completion/result_chain、reasoning signature、工具调用和宿主私有 reasoning parts 不串义 |
-| A210 | 4.27.2 import fixture | 目标深层路径全部可导入且 canonical 类型身份一致 |
+| A210 | 4.29.3 import fixture | 目标深层路径全部可导入且 canonical 类型身份一致 |
 | A211 | KV 隔离 | 同键不同 slug 不串读，重载后数据仍在 |
 | A212 | `AtAll` | OneBot 验收通过时发送全体 at；非 OneBot 明确失败 |
 | A213 | `Unknown` 入站/出站 | 入站数据保留，未经登记出站失败 |
@@ -359,7 +359,8 @@ compat_astr/{slug}/kv
 
 1. A201 至 A214 全部通过；
 2. `ruff`、目标测试和真实宿主加载无新增错误；
-3. 4.27.2 公开导出清单中每个符号均被分类为 E、D、I 或 R；
+3. 4.29.3 公开导出清单中每个符号均被分类为 E、D、I 或 R；
 4. 不存在无来源工具回退、无参数钩子调用、`event=None` 调用或未读取的行为标志；
 5. OneBot 新增段只在真实 Adapter 验收通过后标为 E；
 6. 主 `DESIGN.md`、README 与代码中的版本和能力矩阵一致。
+
